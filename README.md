@@ -4,6 +4,8 @@ A Lovelace card for Masterbuilt Gravity Series grills: live cook state, **setpoi
 
 Companion to the [masterbuilt-gravity-ha](https://github.com/lucvan/masterbuilt-gravity-ha) integration, which it requires.
 
+<img src="https://raw.githubusercontent.com/lucvan/masterbuilt-cook-card/main/images/screenshot.png" alt="Masterbuilt Cook Card — live cook with chart, probe row, and setpoint controls" width="360">
+
 Not affiliated with, endorsed by, or supported by Masterbuilt or Middleby.
 
 ## Why a card at all
