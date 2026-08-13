@@ -11,7 +11,7 @@
  * dashboard config on a timer.
  */
 
-const CARD_VERSION = "0.3.0";
+const CARD_VERSION = "0.3.1";
 
 console.info(
   `%c MASTERBUILT-COOK-CARD %c ${CARD_VERSION} `,
@@ -248,6 +248,8 @@ class MasterbuiltCookCard extends HTMLElement {
     this._lastFetch = 0;
     this._sig = "";
     this._hover = null;
+    this._pending = null;
+    this._editing = null;
   }
 
   static getStubConfig(hass) {
@@ -302,7 +304,8 @@ class MasterbuiltCookCard extends HTMLElement {
           }
         }
       }
-      this._render();
+      // Don't rebuild the DOM out from under a setpoint field being typed into.
+      if (!this._editing) this._render();
     }
     // The native chart fetches its own history; only the custom one needs us to.
     if (
@@ -454,6 +457,23 @@ class MasterbuiltCookCard extends HTMLElement {
     this._setNumber(id, cur + delta * step);
   }
 
+  /** Commit a typed setpoint on blur/Enter. */
+  _commitInput(inp) {
+    const wasEditing = this._editing === inp.dataset.role;
+    this._editing = null;
+    const id = this._entities?.ids?.[inp.dataset.role];
+    const typed = Math.round(Number(inp.value));
+    if (id && Number.isFinite(typed) && inp.value !== "") {
+      const cur = Math.round(Number(this._hass.states[id]?.state));
+      if (typed !== cur) {
+        this._setNumber(id, typed); // renders with the optimistic value
+        return;
+      }
+    }
+    // Nothing to write — just resume normal rendering.
+    if (wasEditing) this._render();
+  }
+
   async _fetchCooks() {
     if (!this._config.device) return;
     try {
@@ -579,6 +599,23 @@ class MasterbuiltCookCard extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-step]").forEach((b) =>
       b.addEventListener("click", () => this._step(b.dataset.role, Number(b.dataset.step)))
     );
+    // Typed setpoint entry. Suppress the card's re-render while an input is
+    // focused (the card rebuilds its whole DOM on state changes, which would
+    // otherwise yank the field out from under the user mid-type), then commit
+    // on blur / Enter.
+    this.shadowRoot.querySelectorAll("input.ctl-val").forEach((inp) => {
+      inp.addEventListener("focus", () => {
+        this._editing = inp.dataset.role;
+      });
+      inp.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") inp.blur();
+        else if (ev.key === "Escape") {
+          this._editing = null;
+          this._render();
+        }
+      });
+      inp.addEventListener("blur", () => this._commitInput(inp));
+    });
     const picker = this.shadowRoot.querySelector("#cookpick");
     if (picker) {
       picker.addEventListener("change", () => this._fetchHistory(picker.value));
@@ -698,7 +735,9 @@ class MasterbuiltCookCard extends HTMLElement {
         <span class="ctl-label"${color ? ` style="color:${color}"` : ""}>${esc(label)}</span>
         <div class="stepper${busy ? " busy" : ""}">
           <button data-role="${role}" data-step="-1" aria-label="decrease">−</button>
-          <b>${Number.isFinite(val) ? val + unit : "—"}</b>
+          <input class="ctl-val" type="number" inputmode="numeric" data-role="${role}"
+                 value="${Number.isFinite(val) ? val : ""}" aria-label="${esc(label)}" />
+          <span class="ctl-unit">${esc(unit)}</span>
           <button data-role="${role}" data-step="1" aria-label="increase">+</button>
         </div>
       </div>`;
@@ -862,8 +901,17 @@ svg.chart .hit { cursor:crosshair; }
   font-size:1.2rem; line-height:1; cursor:pointer; font-family:inherit;
 }
 .stepper button:active { background:var(--primary-color); color:#fff; }
-.stepper b { min-width:74px; text-align:center; font-size:1rem; font-weight:600; font-variant-numeric:tabular-nums; }
-.stepper.busy b { opacity:.55; }
+.stepper input.ctl-val {
+  width:56px; text-align:right; font-size:1rem; font-weight:600; font-family:inherit;
+  font-variant-numeric:tabular-nums; border:1px solid transparent; background:transparent;
+  color:var(--primary-text-color); padding:4px 2px; border-radius:6px; -moz-appearance:textfield;
+}
+.stepper input.ctl-val:hover { border-color:var(--divider-color); }
+.stepper input.ctl-val:focus { outline:none; border-color:var(--primary-color); background:var(--secondary-background-color); }
+.stepper input.ctl-val::-webkit-outer-spin-button,
+.stepper input.ctl-val::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+.stepper .ctl-unit { font-size:.85rem; color:var(--secondary-text-color); min-width:20px; }
+.stepper.busy input.ctl-val { opacity:.55; }
 .timeline ha-card { box-shadow:none; border:none; background:transparent; padding:0; }
 .timeline { min-height:120px; }
 @media (max-width:420px) {
