@@ -46,6 +46,9 @@ The device id is in the URL of the device page (*Settings → Devices & Services
 | `title` | `Cook` | Card heading |
 | `probes` | `[1, 2, 3, 4]` | Which probes to show |
 | `live_chart` | `native` | `native` uses Home Assistant's `history-graph`. `custom` draws the card's own chart with per-series styling |
+| `show_targets` | `true` | Plot each probe's target alongside it, dashed in the probe's colour. Only appears while a target is actually set |
+| `timeline` | `true` | Show the state timeline below the chart |
+| `timeline_roles` | power, heating, engaged, atTemp, door, problem | Which states the timeline shows |
 | `default_mode` | `live` | `live` or `history` |
 | `max_points` | `400` | Points per series when fetching a cook |
 | `idle_hours` | `2` | Hours the live chart shows when no cook is running |
@@ -59,6 +62,14 @@ The device id is in the URL of the device page (*Settings → Devices & Services
 `custom` draws an SVG instead, with the styling this card ships: grill in thick red, target in thin dashed yellow, probes in blue/green/purple/orange, and a crosshair readout. Use it if you want the live and history views to look identical, or want per-series colours and widths that `history-graph` does not offer.
 
 History mode always uses the custom chart — the built-in one cannot show an arbitrary past window.
+
+## State timeline
+
+Below the chart, a band per state — power, heating, engaged, at-temperature, hopper door, problem, plus the error sensor. Home Assistant draws non-numeric entities as coloured bars, so this reads as a timeline of what the grill was doing, not a line graph.
+
+It is windowed to the cook like the chart above it, and it is live-only: the built-in graph has no start/end window, so it cannot be pinned to a cook that has already finished.
+
+Turn it off with `timeline: false`, or pick the states with `timeline_roles`.
 
 ## History mode
 

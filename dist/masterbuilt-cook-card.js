@@ -11,7 +11,7 @@
  * dashboard config on a timer.
  */
 
-const CARD_VERSION = "0.1.0";
+const CARD_VERSION = "0.2.0";
 
 console.info(
   `%c MASTERBUILT-COOK-CARD %c ${CARD_VERSION} `,
@@ -30,7 +30,13 @@ const ROLES = {
   probe2_temp: "probe2",
   probe3_temp: "probe3",
   probe4_temp: "probe4",
+  probe1_target: "probe1_target",
+  probe2_target: "probe2_target",
+  probe3_target: "probe3_target",
+  probe4_target: "probe4_target",
   heat_intensity: "heat",
+  error: "error",
+  rssi: "rssi",
   cook_start: "cookStart",
   last_cook: "lastCook",
 };
@@ -38,19 +44,43 @@ const ROLES = {
 const BINARY_ROLES = {
   power: "power",
   heating: "heating",
+  engaged: "engaged",
   target_reached: "atTemp",
   door_open: "door",
+  lid_open: "lid",
+  problem: "problem",
   stale: "stale",
+  probe1_reached: "probe1Reached",
+  probe2_reached: "probe2Reached",
+  probe3_reached: "probe3Reached",
+  probe4_reached: "probe4Reached",
 };
+
+const PROBE_COLORS = ["#32ade6", "#34c759", "#af52de", "#ff9500"];
 
 const SERIES = [
   { key: "grill", label: "Grill", color: "#ff3b30", width: 5 },
   { key: "target", label: "Target", color: "#ffcc00", width: 2, dashed: true },
-  { key: "probe1", label: "Probe 1", color: "#32ade6", width: 4 },
-  { key: "probe2", label: "Probe 2", color: "#34c759", width: 3 },
-  { key: "probe3", label: "Probe 3", color: "#af52de", width: 3 },
-  { key: "probe4", label: "Probe 4", color: "#ff9500", width: 3 },
+  ...[1, 2, 3, 4].flatMap((n) => [
+    { key: `probe${n}`, label: `Probe ${n}`, color: PROBE_COLORS[n - 1], width: n === 1 ? 4 : 3 },
+    // Probe targets share the probe's colour, dashed and thinner, so a probe
+    // and its setpoint read as a pair. Only drawn when a target is actually
+    // set — the integration leaves the series out otherwise.
+    {
+      key: `probe${n}_target`,
+      label: `Probe ${n} target`,
+      color: PROBE_COLORS[n - 1],
+      width: 2,
+      dashed: true,
+      target: true,
+    },
+  ]),
 ];
+
+// The state timeline: what the old dashboard called the "Power / heating
+// timeline". Home Assistant's history-graph renders non-numeric entities as
+// coloured state bars, which is exactly the look wanted here.
+const TIMELINE_ROLES = ["power", "heating", "engaged", "atTemp", "door", "problem"];
 
 const LIVE_REFRESH_MS = 60000;
 
@@ -210,11 +240,16 @@ class MasterbuiltCookCard extends HTMLElement {
         "Set 'device' to your grill's device id (or provide 'entities' explicitly)."
       );
     }
-    this._config = { probes: [1, 2, 3, 4], live_chart: "native", ...config };
+    this._config = {
+      probes: [1, 2, 3, 4],
+      live_chart: "native",
+      timeline: true,
+      show_targets: true,
+      ...config,
+    };
     this._mode = config.default_mode === "history" ? "history" : "live";
     this._sig = "";
-    this._native = null;
-    this._nativeHours = null;
+    this._nested = {};
   }
 
   get _useNative() {
@@ -246,7 +281,9 @@ class MasterbuiltCookCard extends HTMLElement {
     ) {
       this._fetchHistory();
     }
-    if (this._native) this._native.hass = hass;
+    for (const n of Object.values(this._nested)) {
+      if (n.el) n.el.hass = hass;
+    }
   }
 
   /**
@@ -265,36 +302,55 @@ class MasterbuiltCookCard extends HTMLElement {
     return Math.max(min, Math.round(hours * 1.1 * 100) / 100);
   }
 
-  /** Build (or re-window) the built-in history-graph card. */
-  async _mountNative(slot) {
+  /**
+   * Build (or re-window) a nested built-in card, cached under `name`.
+   *
+   * Rebuilding on every tick would restart the card's own history fetch, so it
+   * is only recreated when the cook window has moved enough to matter.
+   */
+  async _mountNested(slot, name, config) {
     const hours = this._liveHours();
-    const entities = ["grill", "target", ...this._config.probes.map((n) => `probe${n}`)]
-      .map((role) => this._entities?.ids?.[role])
-      .filter(Boolean);
-    if (!entities.length) return;
-
-    // Rebuilding on every tick would restart its fetch; only do it when the
-    // window has moved enough to matter.
+    const cached = this._nested[name];
     const changed =
-      this._nativeHours == null ||
-      Math.abs(hours - this._nativeHours) / this._nativeHours > 0.05;
+      !cached || cached.hours == null || Math.abs(hours - cached.hours) / cached.hours > 0.05;
 
-    if (!this._native || changed) {
+    if (changed) {
       const helpers = await window.loadCardHelpers();
-      const el = await helpers.createCardElement({
-        type: "history-graph",
-        hours_to_show: hours,
-        show_names: true,
-        fit_y_data: true,
-        entities,
-      });
+      const el = await helpers.createCardElement({ ...config, hours_to_show: hours });
       el.hass = this._hass;
-      this._native = el;
-      this._nativeHours = hours;
+      this._nested[name] = { el, hours };
     }
-    if (this._native.parentElement !== slot) {
-      slot.replaceChildren(this._native);
+    const el = this._nested[name].el;
+    if (el.parentElement !== slot) slot.replaceChildren(el);
+  }
+
+  /** Entity ids for the temperature chart, including probe targets if set. */
+  _chartEntities() {
+    const ids = this._entities?.ids || {};
+    const roles = ["grill", "target"];
+    for (const n of this._config.probes) {
+      roles.push(`probe${n}`);
+      if (this._config.show_targets) roles.push(`probe${n}_target`);
     }
+    return roles
+      .map((r) => ids[r])
+      .filter((id) => {
+        if (!id) return false;
+        // A probe target that has never been set sits at unknown/unavailable;
+        // including it would add an empty row to the legend.
+        const st = this._hass.states[id];
+        return st && !["unknown", "unavailable"].includes(st.state);
+      });
+  }
+
+  _timelineEntities() {
+    const b = this._entities?.binary || {};
+    const ids = this._entities?.ids || {};
+    const list = (this._config.timeline_roles || TIMELINE_ROLES)
+      .map((r) => b[r])
+      .filter(Boolean);
+    if (ids.error) list.push(ids.error);
+    return list;
   }
 
   /** Find our entities from the configured device, via the entity registry. */
@@ -399,10 +455,10 @@ class MasterbuiltCookCard extends HTMLElement {
     const series = this._history?.series || {};
     const shown = {};
     for (const s of SERIES) {
-      const isProbe = s.key.startsWith("probe");
-      const n = isProbe ? Number(s.key.slice(5)) : null;
-      if (isProbe && !this._config.probes.includes(n)) continue;
-      if (series[s.key]) shown[s.key] = series[s.key];
+      const probe = /^probe(\d)/.exec(s.key);
+      if (probe && !this._config.probes.includes(Number(probe[1]))) continue;
+      if (s.target && !this._config.show_targets) continue;
+      if (series[s.key]?.length) shown[s.key] = series[s.key];
     }
 
     const cookStartState = e.states?.cookStart?.state;
@@ -434,6 +490,12 @@ class MasterbuiltCookCard extends HTMLElement {
         </div>
 
         ${
+          this._config.timeline && this._mode === "live"
+            ? `<div class="tl"><div class="tlhead">State timeline</div><div class="timeline"></div></div>`
+            : ""
+        }
+
+        ${
           this._useNative
             ? ""
             : `<div class="legend">
@@ -461,9 +523,29 @@ class MasterbuiltCookCard extends HTMLElement {
 
     const slot = this.shadowRoot.querySelector(".native");
     if (slot) {
-      this._mountNative(slot);
+      const entities = this._chartEntities();
+      if (entities.length) {
+        this._mountNested(slot, "chart", {
+          type: "history-graph",
+          show_names: true,
+          fit_y_data: true,
+          entities,
+        });
+      }
     } else {
       this._wireHover(shown);
+    }
+
+    const tl = this.shadowRoot.querySelector(".timeline");
+    if (tl) {
+      const entities = this._timelineEntities();
+      if (entities.length) {
+        this._mountNested(tl, "timeline", {
+          type: "history-graph",
+          show_names: true,
+          entities,
+        });
+      }
     }
   }
 
@@ -500,19 +582,36 @@ class MasterbuiltCookCard extends HTMLElement {
   }
 
   _probeRow(e, unit) {
+    const live = (st) => st && !["unknown", "unavailable"].includes(st.state);
+
     const cells = this._config.probes
       .map((n) => {
         const st = e.states?.[`probe${n}`];
-        if (!st || ["unknown", "unavailable"].includes(st.state)) {
+        if (!live(st)) {
           return `<div class="probe off"><span>Probe ${n}</span><b>—</b></div>`;
         }
         const v = num(st.state);
-        const s = SERIES.find((x) => x.key === `probe${n}`);
-        return `<div class="probe"><span style="color:${s.color}">Probe ${n}</span>
-          <b>${v == null ? "—" : Math.round(v) + unit}</b></div>`;
+        const tgtState = e.states?.[`probe${n}_target`];
+        const tgt = live(tgtState) ? num(tgtState.state) : null;
+        const reached = e.binaryStates?.[`probe${n}Reached`]?.state === "on";
+        const color = PROBE_COLORS[n - 1];
+        return `<div class="probe">
+          <span style="color:${color}">Probe ${n}</span>
+          <b>${v == null ? "—" : Math.round(v) + unit}${
+            tgt != null ? `<i class="tgt${reached ? " hit" : ""}">→ ${Math.round(tgt)}${unit}</i>` : ""
+          }</b></div>`;
       })
       .join("");
-    return `<div class="probes">${cells}</div>`;
+
+    const err = e.states?.error;
+    const heat = num(e.states?.heat?.state);
+    const extras = `
+      <div class="probe"><span>Fan</span><b>${heat == null ? "—" : Math.round(heat) + "%"}</b></div>
+      <div class="probe"><span>Error</span><b class="${
+        err && err.state !== "OK" ? "bad" : ""
+      }">${esc(err ? err.state : "—")}</b></div>`;
+
+    return `<div class="probes">${cells}${extras}</div>`;
   }
 
   _historyPicker() {
@@ -648,6 +747,13 @@ svg.chart .hit { cursor:crosshair; }
 .probe span { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--secondary-text-color); }
 .probe b { font-size:.95rem; font-weight:500; color:var(--primary-text-color); }
 .probe.off b, .probe.off span { opacity:.4; }
+.probe .tgt { font-style:normal; font-size:.78rem; color:var(--secondary-text-color); margin-left:5px; }
+.probe .tgt.hit { color:#34c759; }
+.probe b.bad { color:var(--error-color,#ff3b30); }
+.tl { margin-top:14px; padding-top:10px; border-top:1px solid var(--divider-color); }
+.tlhead { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--secondary-text-color); margin-bottom:2px; }
+.timeline ha-card { box-shadow:none; border:none; background:transparent; padding:0; }
+.timeline { min-height:120px; }
 @media (max-width:420px) {
   .pills { margin-left:0; }
   svg.chart { height:220px; }
