@@ -11,7 +11,7 @@
  * dashboard config on a timer.
  */
 
-const CARD_VERSION = "0.2.1";
+const CARD_VERSION = "0.3.0";
 
 console.info(
   `%c MASTERBUILT-COOK-CARD %c ${CARD_VERSION} `,
@@ -39,6 +39,12 @@ const ROLES = {
   rssi: "rssi",
   cook_start: "cookStart",
   last_cook: "lastCook",
+  // Settable number entities (v0.6.0+ integration). These drive the controls.
+  grill_target_set: "grillSet",
+  probe1_target_set: "probe1Set",
+  probe2_target_set: "probe2Set",
+  probe3_target_set: "probe3Set",
+  probe4_target_set: "probe4Set",
 };
 
 const BINARY_ROLES = {
@@ -288,6 +294,14 @@ class MasterbuiltCookCard extends HTMLElement {
     if (sig !== this._sig) {
       this._sig = sig;
       this._entities = found;
+      // Drop optimistic values the real state has caught up to.
+      if (this._pending) {
+        for (const [id, val] of Object.entries(this._pending)) {
+          if (Math.round(Number(hass.states[id]?.state)) === Math.round(val)) {
+            delete this._pending[id];
+          }
+        }
+      }
       this._render();
     }
     // The native chart fetches its own history; only the custom one needs us to.
@@ -412,6 +426,34 @@ class MasterbuiltCookCard extends HTMLElement {
     return res?.response ?? res;
   }
 
+  /** Set a number entity (grill or probe target) to an absolute value. */
+  async _setNumber(entityId, value) {
+    const st = this._hass.states[entityId];
+    if (!st) return;
+    const min = Number(st.attributes.min ?? -Infinity);
+    const max = Number(st.attributes.max ?? Infinity);
+    const clamped = Math.min(max, Math.max(min, value));
+    // Optimistic: reflect immediately, the poll will confirm.
+    this._pending = { ...(this._pending || {}), [entityId]: clamped };
+    this._render();
+    try {
+      await this._hass.callService("number", "set_value", { value: clamped }, { entity_id: entityId });
+    } catch (err) {
+      this._error = `Could not set value: ${err.message || err}`;
+    }
+  }
+
+  /** Nudge a number entity by ±step. */
+  _step(role, delta) {
+    const id = this._entities?.ids?.[role];
+    if (!id) return;
+    const st = this._hass.states[id];
+    const cur = this._pending?.[id] ?? Number(st?.state);
+    if (!Number.isFinite(cur)) return;
+    const step = Number(st?.attributes?.step) || 5;
+    this._setNumber(id, cur + delta * step);
+  }
+
   async _fetchCooks() {
     if (!this._config.device) return;
     try {
@@ -507,12 +549,6 @@ class MasterbuiltCookCard extends HTMLElement {
         </div>
 
         ${
-          this._config.timeline && this._mode === "live"
-            ? `<div class="tl"><div class="tlhead">State timeline</div><div class="timeline"></div></div>`
-            : ""
-        }
-
-        ${
           this._useNative
             ? ""
             : `<div class="legend">
@@ -528,10 +564,20 @@ class MasterbuiltCookCard extends HTMLElement {
         }
 
         ${this._mode === "live" ? this._probeRow(e, unit) : this._historyFooter()}
+        ${this._mode === "live" ? this._controls(e, unit) : ""}
+
+        ${
+          this._config.timeline && this._mode === "live"
+            ? `<div class="tl"><div class="tlhead">State timeline</div><div class="timeline"></div></div>`
+            : ""
+        }
       </ha-card>`;
 
     this.shadowRoot.querySelectorAll("[data-mode]").forEach((b) =>
       b.addEventListener("click", () => this._setMode(b.dataset.mode))
+    );
+    this.shadowRoot.querySelectorAll("[data-step]").forEach((b) =>
+      b.addEventListener("click", () => this._step(b.dataset.role, Number(b.dataset.step)))
     );
     const picker = this.shadowRoot.querySelector("#cookpick");
     if (picker) {
@@ -629,6 +675,42 @@ class MasterbuiltCookCard extends HTMLElement {
       }">${esc(err ? err.state : "—")}</b></div>`;
 
     return `<div class="probes">${cells}${extras}</div>`;
+  }
+
+  /**
+   * Setpoint controls. One stepper row per settable target that exists — the
+   * grill, plus each plugged-in probe. Shown only when the integration exposes
+   * the number entities (v0.6.0+); older installs are read-only and get nothing.
+   */
+  _controls(e, unit) {
+    if (this._config.controls === false) return "";
+    const ids = e.ids || {};
+    const rows = [];
+
+    const stepper = (role, label, color) => {
+      const id = ids[role];
+      if (!id) return "";
+      const st = this._hass.states[id];
+      if (!st || ["unknown", "unavailable"].includes(st.state)) return "";
+      const val = this._pending?.[id] ?? Math.round(Number(st.state));
+      const busy = this._pending?.[id] != null;
+      return `<div class="ctl">
+        <span class="ctl-label"${color ? ` style="color:${color}"` : ""}>${esc(label)}</span>
+        <div class="stepper${busy ? " busy" : ""}">
+          <button data-role="${role}" data-step="-1" aria-label="decrease">−</button>
+          <b>${Number.isFinite(val) ? val + unit : "—"}</b>
+          <button data-role="${role}" data-step="1" aria-label="increase">+</button>
+        </div>
+      </div>`;
+    };
+
+    rows.push(stepper("grillSet", "Grill target", "#ff3b30"));
+    for (const n of this._config.probes) {
+      rows.push(stepper(`probe${n}Set`, `Probe ${n} target`, PROBE_COLORS[n - 1]));
+    }
+    const body = rows.filter(Boolean).join("");
+    if (!body) return "";
+    return `<div class="controls"><div class="tlhead">Set temperatures</div>${body}</div>`;
   }
 
   _historyPicker() {
@@ -769,6 +851,19 @@ svg.chart .hit { cursor:crosshair; }
 .probe b.bad { color:var(--error-color,#ff3b30); }
 .tl { margin-top:14px; padding-top:10px; border-top:1px solid var(--divider-color); }
 .tlhead { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--secondary-text-color); margin-bottom:2px; }
+.controls { margin-top:14px; padding-top:10px; border-top:1px solid var(--divider-color); }
+.controls .tlhead { margin-bottom:8px; }
+.ctl { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
+.ctl-label { font-size:.9rem; font-weight:500; color:var(--primary-text-color); }
+.stepper { display:inline-flex; align-items:center; gap:2px; }
+.stepper button {
+  width:34px; height:34px; border-radius:8px; border:1px solid var(--divider-color);
+  background:var(--secondary-background-color); color:var(--primary-text-color);
+  font-size:1.2rem; line-height:1; cursor:pointer; font-family:inherit;
+}
+.stepper button:active { background:var(--primary-color); color:#fff; }
+.stepper b { min-width:74px; text-align:center; font-size:1rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.stepper.busy b { opacity:.55; }
 .timeline ha-card { box-shadow:none; border:none; background:transparent; padding:0; }
 .timeline { min-height:120px; }
 @media (max-width:420px) {

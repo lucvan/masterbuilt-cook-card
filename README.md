@@ -1,6 +1,6 @@
 # Masterbuilt Cook Card
 
-A Lovelace card for Masterbuilt Gravity Series grills: live cook state, a chart pinned to the cook rather than to an arbitrary window, and a picker for every past cook — including ones from before Home Assistant knew the grill existed.
+A Lovelace card for Masterbuilt Gravity Series grills: live cook state, **setpoint controls**, a chart pinned to the cook rather than to an arbitrary window, and a picker for every past cook — including ones from before Home Assistant knew the grill existed.
 
 Companion to the [masterbuilt-gravity-ha](https://github.com/lucvan/masterbuilt-gravity-ha) integration, which it requires.
 
@@ -47,7 +47,8 @@ The device id is in the URL of the device page (*Settings → Devices & Services
 | `probes` | `[1, 2, 3, 4]` | Which probes to show |
 | `live_chart` | `native` | `native` uses Home Assistant's `history-graph`. `custom` draws the card's own chart with per-series styling |
 | `show_targets` | `true` | Plot each probe's target alongside it, dashed in the probe's colour. Only appears while a target is actually set |
-| `timeline` | `true` | Show the state timeline below the chart |
+| `controls` | `true` | Show setpoint steppers for the grill and plugged-in probes. Requires integration v0.6.0+ (read-only installs get nothing) |
+| `timeline` | `true` | Show the state timeline at the bottom of the card |
 | `timeline_roles` | power, heating, engaged, atTemp, door, problem | Which states the timeline shows |
 | `default_mode` | `live` | `live` or `history` |
 | `max_points` | `400` | Points per series when fetching a cook |
@@ -62,6 +63,12 @@ The device id is in the URL of the device page (*Settings → Devices & Services
 `custom` draws an SVG instead, with the styling this card ships: grill in thick red, target in thin dashed yellow, probes in blue/green/purple/orange, and a crosshair readout. Use it if you want the live and history views to look identical, or want per-series colours and widths that `history-graph` does not offer.
 
 History mode always uses the custom chart — the built-in one cannot show an arbitrary past window.
+
+## Setting temperatures
+
+With integration **v0.6.0+**, the card shows a **Set temperatures** row: a −/+ stepper for the grill and for each plugged-in probe, in the grill's own unit. Tapping a stepper calls the integration's `number` entities, which write to the grill over the cloud; the value shows dimmed until the grill confirms the change (a few seconds).
+
+Turn the controls off with `controls: false`. Power on/off is not offered — the integration does not implement it.
 
 ## State timeline
 
