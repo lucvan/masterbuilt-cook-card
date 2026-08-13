@@ -11,7 +11,7 @@
  * dashboard config on a timer.
  */
 
-const CARD_VERSION = "0.2.0";
+const CARD_VERSION = "0.2.1";
 
 console.info(
   `%c MASTERBUILT-COOK-CARD %c ${CARD_VERSION} `,
@@ -60,7 +60,7 @@ const PROBE_COLORS = ["#32ade6", "#34c759", "#af52de", "#ff9500"];
 
 const SERIES = [
   { key: "grill", label: "Grill", color: "#ff3b30", width: 5 },
-  { key: "target", label: "Target", color: "#ffcc00", width: 2, dashed: true },
+  { key: "target", label: "Target", color: "#ffcc00", width: 2, dashed: true, step: true },
   ...[1, 2, 3, 4].flatMap((n) => [
     { key: `probe${n}`, label: `Probe ${n}`, color: PROBE_COLORS[n - 1], width: n === 1 ? 4 : 3 },
     // Probe targets share the probe's colour, dashed and thinner, so a probe
@@ -73,6 +73,7 @@ const SERIES = [
       width: 2,
       dashed: true,
       target: true,
+      step: true,
     },
   ]),
 ];
@@ -185,9 +186,25 @@ function chartSvg(series, opts) {
 
   const paths = active
     .map((s) => {
-      const d = series[s.key]
-        .map(([t, v], i) => `${i ? "L" : "M"}${px(t).toFixed(1)},${py(v).toFixed(1)}`)
-        .join("");
+      const pts = series[s.key];
+      let d;
+      if (s.step) {
+        // Setpoints are step-valued and sampled only when they change, so a
+        // target held for three hours is two points. Joining those with a
+        // straight line draws a ramp and claims the setpoint was being moved
+        // the whole time. Hold the value, then step.
+        d = pts
+          .map(([t, v], i) =>
+            i
+              ? `H${px(t).toFixed(1)}V${py(v).toFixed(1)}`
+              : `M${px(t).toFixed(1)},${py(v).toFixed(1)}`
+          )
+          .join("");
+      } else {
+        d = pts
+          .map(([t, v], i) => `${i ? "L" : "M"}${px(t).toFixed(1)},${py(v).toFixed(1)}`)
+          .join("");
+      }
       return `<path d="${d}" fill="none" stroke="${s.color}"
         stroke-width="${s.width}" stroke-linecap="round" stroke-linejoin="round"
         ${s.dashed ? 'stroke-dasharray="8 6"' : ""}/>`;
