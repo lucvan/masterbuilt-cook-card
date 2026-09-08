@@ -11,7 +11,7 @@
  * dashboard config on a timer.
  */
 
-const CARD_VERSION = "0.3.1";
+const CARD_VERSION = "0.3.3";
 
 console.info(
   `%c MASTERBUILT-COOK-CARD %c ${CARD_VERSION} `,
@@ -35,6 +35,9 @@ const ROLES = {
   probe3_target: "probe3_target",
   probe4_target: "probe4_target",
   heat_intensity: "heat",
+  // Kamado Joe reports the same heat.t2.intensity value, but the integration
+  // names it for what it drives on that grill. Same role, same "Fan" tile.
+  fan_speed: "heat",
   error: "error",
   rssi: "rssi",
   cook_start: "cookStart",
@@ -925,8 +928,8 @@ customElements.define("masterbuilt-cook-card", MasterbuiltCookCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "masterbuilt-cook-card",
-  name: "Masterbuilt Cook Card",
-  description: "Live and historic cooks for a Masterbuilt Gravity Series grill.",
+  name: "Masterbuilt & Kamado Joe Cook Card",
+  description: "Live and historic cooks for Masterbuilt Gravity Series and Kamado Joe grills.",
   preview: true,
   documentationURL: "https://github.com/lucvan/masterbuilt-cook-card",
 });

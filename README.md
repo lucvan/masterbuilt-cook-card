@@ -1,12 +1,12 @@
-# Masterbuilt Cook Card
+# Masterbuilt & Kamado Joe Cook Card
 
-A Lovelace card for Masterbuilt Gravity Series grills: live cook state, **setpoint controls**, a chart pinned to the cook rather than to an arbitrary window, and a picker for every past cook — including ones from before Home Assistant knew the grill existed.
+A Lovelace card for Masterbuilt Gravity Series and Kamado Joe grills: live cook state, **setpoint controls**, a chart pinned to the cook rather than to an arbitrary window, and a picker for every past cook — including ones from before Home Assistant knew the grill existed.
 
 Companion to the [masterbuilt-gravity-ha](https://github.com/lucvan/masterbuilt-gravity-ha) integration, which it requires.
 
 <img src="https://raw.githubusercontent.com/lucvan/masterbuilt-cook-card/main/images/screenshot.png" alt="Masterbuilt Cook Card — live cook with chart, probe row, and setpoint controls" width="360">
 
-Not affiliated with, endorsed by, or supported by Masterbuilt or Middleby.
+Not affiliated with, endorsed by, or supported by Masterbuilt, Kamado Joe, or Middleby.
 
 ## Why a card at all
 
@@ -19,7 +19,8 @@ So the card drives the built-in graph for live cooks (native look, HA's own tool
 
 ## Requires
 
-- [masterbuilt-gravity-ha](https://github.com/lucvan/masterbuilt-gravity-ha) v0.5.0 or newer — the card calls its `list_cooks` and `get_cook_history` actions
+- [masterbuilt-gravity-ha](https://github.com/lucvan/masterbuilt-gravity-ha) v0.5.0 or newer — the card calls its `list_cooks` and `get_cook_history` actions. **Kamado Joe grills need v0.7.0 or newer**, which is where brand support was added
+- The card adapts itself to the grill: a Kamado Joe has no hopper, so that row is left out of the state timeline, and it charts in whatever unit the grill is set to
 - Home Assistant 2024.11+
 
 ## Install
