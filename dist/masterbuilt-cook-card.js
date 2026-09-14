@@ -11,7 +11,7 @@
  * dashboard config on a timer.
  */
 
-const CARD_VERSION = "0.3.3";
+const CARD_VERSION = "0.4.0";
 
 console.info(
   `%c MASTERBUILT-COOK-CARD %c ${CARD_VERSION} `,
@@ -268,8 +268,12 @@ class MasterbuiltCookCard extends HTMLElement {
         "Set 'device' to your grill's device id (or provide 'entities' explicitly)."
       );
     }
+    // Whether the user pinned a probe list. Unpinned, the probe row follows
+    // the grill: a model profile can leave slots out entirely.
+    this._explicitProbes = Array.isArray(config.probes);
     this._config = {
       probes: [1, 2, 3, 4],
+      hide_temps_when_off: false,
       live_chart: "native",
       timeline: true,
       show_targets: true,
@@ -652,8 +656,19 @@ class MasterbuiltCookCard extends HTMLElement {
     }
   }
 
+  /**
+   * `hide_temps_when_off`: treat current readings as unknown while the grill
+   * reports it is off, since the cloud can keep a believable last value after
+   * shutdown. Keyed on power being explicitly "off", so a missing or
+   * unavailable power entity never hides live readings. The integration still
+   * reports the value; this is presentation only.
+   */
+  _tempsHidden(e) {
+    return this._config.hide_temps_when_off === true && e.binaryStates?.power?.state === "off";
+  }
+
   _liveHeader(e, unit, cooking, nowOffset) {
-    const grill = num(e.states?.grill?.state);
+    const grill = this._tempsHidden(e) ? null : num(e.states?.grill?.state);
     const target = num(e.states?.target?.state);
     const heat = num(e.states?.heat?.state);
     const atTemp = e.binaryStates?.atTemp?.state === "on";
@@ -686,14 +701,18 @@ class MasterbuiltCookCard extends HTMLElement {
 
   _probeRow(e, unit) {
     const live = (st) => st && !["unknown", "unavailable"].includes(st.state);
+    const hidden = this._tempsHidden(e);
 
     const cells = this._config.probes
+      // An unplugged probe still has an entity and keeps its "—" tile; a slot
+      // the grill's model profile leaves out has no entity and no tile.
+      .filter((n) => this._explicitProbes || e.ids?.[`probe${n}`])
       .map((n) => {
         const st = e.states?.[`probe${n}`];
         if (!live(st)) {
           return `<div class="probe off"><span>Probe ${n}</span><b>—</b></div>`;
         }
-        const v = num(st.state);
+        const v = hidden ? null : num(st.state);
         const tgtState = e.states?.[`probe${n}_target`];
         const tgt = live(tgtState) ? num(tgtState.state) : null;
         const reached = e.binaryStates?.[`probe${n}Reached`]?.state === "on";

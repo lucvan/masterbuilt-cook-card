@@ -47,10 +47,11 @@ The device id is in the URL of the device page (*Settings → Devices & Services
 |---|---|---|
 | `device` | *required* | Device id of the grill |
 | `title` | `Cook` | Card heading |
-| `probes` | `[1, 2, 3, 4]` | Which probes to show |
+| `probes` | every slot the grill has | Which probes to show. Unset, the card shows each probe slot your grill has an entity for — a [model profile](https://github.com/lucvan/masterbuilt-gravity-ha#model-profiles) can leave slots out. Set a list to pin it |
 | `live_chart` | `native` | `native` uses Home Assistant's `history-graph`. `custom` draws the card's own chart with per-series styling |
 | `show_targets` | `true` | Plot each probe's target alongside it, dashed in the probe's colour. Only appears while a target is actually set |
-| `controls` | `true` | Show setpoint steppers for the grill and plugged-in probes. Requires integration v0.6.0+ (read-only installs get nothing) |
+| `controls` | `true` | Show setpoint steppers for the grill and plugged-in probes. Hidden automatically when the integration is [read-only](https://github.com/lucvan/masterbuilt-gravity-ha#read-only-mode) |
+| `hide_temps_when_off` | `false` | Show the grill and probe temperatures as — while the grill reports it is off. The cloud can keep a believable last reading after shutdown; turn this on if you'd rather not see it. Only the current readings change — the chart and history are unaffected, and so is what the integration reports |
 | `timeline` | `true` | Show the state timeline at the bottom of the card |
 | `timeline_roles` | power, heating, engaged, atTemp, door, problem | Which states the timeline shows |
 | `default_mode` | `live` | `live` or `history` |
@@ -90,6 +91,12 @@ The card shows where the data came from — `recorder` when your own database co
 ## Stale-data warning
 
 When `binary_sensor.<grill>_stale_data` is on, the card shows a banner across the top. That sensor exists because the grill can carry on cooking while its WiFi module wedges — the cloud then serves a frozen shadow that eventually reads "off" while the meat is still cooking. Take the banner seriously and check the grill physically.
+
+## Contributing
+
+Pull requests are welcome. One firm rule: this card is built for [masterbuilt-gravity-ha](https://github.com/lucvan/masterbuilt-gravity-ha) and must always work with it.
+
+Support for another grill integration is welcome **as an addition** — its domain or entity names alongside this integration's — provided `masterbuilt_gravity` stays the default and nothing changes about how the card finds that integration's entities. A change that would make an existing user edit their card config won't be merged.
 
 ## License
 
