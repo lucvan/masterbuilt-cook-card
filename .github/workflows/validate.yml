@@ -27,3 +27,5 @@ jobs:
         with:
           node-version: "20"
       - run: node --check dist/masterbuilt-cook-card.js
+      - name: Render checks
+        run: node tests/render.test.js
